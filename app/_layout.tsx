@@ -1,24 +1,40 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import React, { useContext, useEffect } from 'react';
+import { useRouter, useSegments, Slot } from 'expo-router';
+import { AuthContext, AuthProvider } from '../context/AuthContext';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+const InitialLayout = () => {
+  const { user, loading } = useContext(AuthContext);
+  const segments = useSegments();
+  const router = useRouter();
 
-export const unstable_settings = {
-  anchor: '(tabs)',
+  useEffect(() => {
+    const inTabsGroup = segments[0] === '(tabs)';
+
+    // don't navigate until loading completes
+    if (loading) return;
+
+    console.log('InitialLayout effect', { user: !!user, segments, loading, inTabsGroup });
+
+    // Only perform redirects from the bare root (no segments).
+    // This prevents the layout from immediately clobbering navigation
+    // to non-root routes such as /take-photo which are outside the
+    // (tabs) group.
+  if (user && !inTabsGroup && segments[0] === undefined) {
+      // Route logged-in users to the app home (index) where the "Time to BeReal" button lives
+      router.replace('/');
+    } else if (!user && !inTabsGroup) {
+      // If not logged in and not already inside the tabs group, send to auth
+      router.replace('/(tabs)/auth');
+    }
+  }, [user, segments, loading, router]);
+
+  return <Slot />;
 };
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <AuthProvider>
+      <InitialLayout />
+    </AuthProvider>
   );
 }
