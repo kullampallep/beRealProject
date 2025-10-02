@@ -1,5 +1,5 @@
 import React, { useRef, useState, useContext, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Platform, Button } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { AuthContext } from '../context/AuthContext';
@@ -80,22 +80,33 @@ export default function TakePhotoSafe() {
       const frontConst = Consts.Type?.front ?? (Consts as any).front ?? 'front';
       const backConst = Consts.Type?.back ?? (Consts as any).back ?? 'back';
 
-      // ensure back first
-      setCameraType(backConst);
-      // wait for camera switch
-      await sleep(500);
-      const back = await (cameraRef.current as any).takePictureAsync({ quality: 0.7, skipProcessing: true });
-      setBackPhoto(back.uri);
+      Alert.alert('📸 BeReal Time!', 'Get ready to capture both cameras simultaneously!', [
+        { text: 'Ready!', onPress: async () => {
+          try {
+            // ensure back first
+            setCameraType(backConst);
+            // wait for camera switch
+            await sleep(800);
+            const back = await (cameraRef.current as any).takePictureAsync({ quality: 0.8, skipProcessing: true });
+            setBackPhoto(back.uri);
 
-      // switch to front
-      setCameraType(frontConst);
-      await sleep(500);
-      const front = await (cameraRef.current as any).takePictureAsync({ quality: 0.7, skipProcessing: true });
-      setFrontPhoto(front.uri);
+            // switch to front with notification
+            Alert.alert('📱 Flip!', 'Now capturing your reaction!');
+            setCameraType(frontConst);
+            await sleep(800);
+            const front = await (cameraRef.current as any).takePictureAsync({ quality: 0.8, skipProcessing: true });
+            setFrontPhoto(front.uri);
 
-      // save both
-      await savePhotoRecord(front.uri, back.uri);
-      router.replace('/(tabs)/feed');
+            // save both
+            await savePhotoRecord(front.uri, back.uri);
+            Alert.alert('✨ BeReal Posted!', 'Your authentic moment has been shared!');
+            router.replace('/(tabs)/feed');
+          } catch (err) {
+            console.error('captureBoth error', err);
+            Alert.alert('Error capturing photos');
+          }
+        }}
+      ]);
     } catch (err) {
       console.error('captureBoth error', err);
       Alert.alert('Error capturing photos');
@@ -183,55 +194,161 @@ export default function TakePhotoSafe() {
     }
   };
 
-  // initial UI: Open Camera button (only visible when user is signed in)
-  if (!CameraComponent) {
-    // If we're running on web, provide an in-browser camera UI fallback.
-    // If running in Expo Go (native) and expo-camera isn't available, offer an ImagePicker fallback.
+  // For Expo Go, we'll prioritize the image picker since native camera doesn't work
+  const isExpoGo = !CameraComponent || Platform.OS === 'web';
+  
+  // initial UI: Show Expo Go optimized interface
+  if (isExpoGo || !CameraComponent) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Take a BeReal</Text>
-        {!user ? (
-          <Text style={styles.note}>Please sign in to use the camera.</Text>
-        ) : (
-          <>
-            {Platform.OS === 'web' ? (
-              <WebCameraFallback onSave={async (uri: string) => await savePhotoRecord(uri, undefined)} />
-            ) : (
-              <>
-                <Button title={initializing ? 'Initializing...' : 'Open Camera'} onPress={openCamera} disabled={initializing} />
-                <View style={{ height: 8 }} />
-                <Button title="Pick / Take Photo (Expo Go fallback)" onPress={async () => await pickImageFallback()} />
-                {initializing && <ActivityIndicator style={{ marginTop: 12 }} />}
-                <View style={{ height: 12 }} />
-                <Button title="Cancel" onPress={() => router.back()} />
-              </>
-            )}
-          </>
-        )}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>BeReal.</Text>
+          <View style={styles.headerRight} />
+        </View>
+
+        <View style={styles.expoGoContainer}>
+          <Text style={styles.title}>📸 Time to BeReal!</Text>
+          {!user ? (
+            <Text style={styles.note}>Please sign in to use the camera.</Text>
+          ) : (
+            <>
+              <Text style={styles.subtitle}>
+                {Platform.OS === 'web' ? 'Web Camera Available' : 'Expo Go Mode'}
+              </Text>
+              <Text style={styles.description}>
+                {Platform.OS === 'web' 
+                  ? 'Use your web camera to capture authentic moments'
+                  : 'Take or choose photos from your gallery to create your BeReal'
+                }
+              </Text>
+              
+              {Platform.OS === 'web' ? (
+                <WebCameraFallback onSave={async (uri: string) => await savePhotoRecord(uri, undefined)} />
+              ) : (
+                <View style={styles.buttonContainer}>
+                  <TouchableOpacity 
+                    style={styles.primaryActionButton} 
+                    onPress={async () => await takePhotoWithPicker()}
+                  >
+                    <Text style={styles.primaryActionButtonText}>📸 Take Photo</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.secondaryActionButton} 
+                    onPress={async () => await pickFromLibrary()}
+                  >
+                    <Text style={styles.secondaryActionButtonText}>🖼️ Choose from Gallery</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={styles.simulateButton} 
+                    onPress={async () => await simulateBeReal()}
+                  >
+                    <Text style={styles.simulateButtonText}>✨ Simulate BeReal (Demo)</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.cancelButton} 
+                onPress={() => router.back()}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
     );
   }
 
-  // --- Helpers: web camera fallback and image-picker fallback for Expo Go ---
-  async function pickImageFallback() {
+  // --- Helpers: Enhanced image picker functions for Expo Go ---
+  async function takePhotoWithPicker() {
     try {
+      setLoading(true);
       const ImagePicker = await import('expo-image-picker');
-      // prefer camera if available, otherwise open library
-      let result: any;
-      try {
-        result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-      } catch (e) {
-        result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
+      
+      // Request camera permissions
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Camera access is needed to take photos.');
+        return;
       }
-      if (!result || result.cancelled) return;
-      const uri = result.assets ? result.assets[0].uri : result.uri;
-      await savePhotoRecord(uri, undefined);
-      Alert.alert('Saved', 'Photo saved (fallback).');
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        await savePhotoRecord(uri, undefined);
+        Alert.alert('✨ BeReal Created!', 'Your authentic moment has been captured!');
+        router.replace('/(tabs)/feed');
+      }
+    } catch (err) {
+      console.error('takePhotoWithPicker error', err);
+      Alert.alert('Camera Error', 'Could not access camera. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function pickFromLibrary() {
+    try {
+      setLoading(true);
+      const ImagePicker = await import('expo-image-picker');
+      
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 4],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        await savePhotoRecord(uri, undefined);
+        Alert.alert('✨ BeReal Created!', 'Your photo has been shared!');
+        router.replace('/(tabs)/feed');
+      }
+    } catch (err) {
+      console.error('pickFromLibrary error', err);
+      Alert.alert('Gallery Error', 'Could not access photo library. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function simulateBeReal() {
+    try {
+      setLoading(true);
+      
+      // Create a simulated BeReal with placeholder images
+      const demoPhotos = [
+        'https://picsum.photos/400/600?random=' + Date.now(),
+        'https://picsum.photos/800/1200?random=' + (Date.now() + 1)
+      ];
+      
+      await savePhotoRecord(demoPhotos[0], demoPhotos[1]);
+      Alert.alert('✨ Demo BeReal Created!', 'A sample BeReal has been created for testing!');
       router.replace('/(tabs)/feed');
     } catch (err) {
-      console.error('pickImageFallback error', err);
-      Alert.alert('Image picker unavailable', String(err));
+      console.error('simulateBeReal error', err);
+      Alert.alert('Error', 'Could not create demo BeReal.');
+    } finally {
+      setLoading(false);
     }
+  }
+
+  // Legacy fallback function
+  async function pickImageFallback() {
+    await takePhotoWithPicker();
   }
 
   function WebCameraFallback({ onSave }: { onSave: (uri: string) => Promise<void> }) {
@@ -286,13 +403,17 @@ export default function TakePhotoSafe() {
     return (
       <View style={{ alignItems: 'center' }}>
         {!stream ? (
-          <Button title="Start Web Camera" onPress={start} />
+          <TouchableOpacity style={styles.actionButton} onPress={start}>
+            <Text style={styles.actionButtonText}>Start Web Camera</Text>
+          </TouchableOpacity>
         ) : (
           <>
             {/* @ts-ignore - using native DOM video element in react-native-web */}
             <video ref={videoRef} style={{ width: 320, height: 240, backgroundColor: '#000' }} />
             <View style={{ height: 8 }} />
-            <Button title="Capture" onPress={capture} />
+            <TouchableOpacity style={styles.actionButton} onPress={capture}>
+              <Text style={styles.actionButtonText}>Capture</Text>
+            </TouchableOpacity>
             <View style={{ height: 8 }} />
             {captured ? (
               <>
@@ -300,7 +421,9 @@ export default function TakePhotoSafe() {
                 {/* @ts-ignore */}
                 <img src={captured} alt="preview" style={{ width: 160, height: 120, marginTop: 8 }} />
                 <View style={{ height: 8 }} />
-                <Button title="Save" onPress={save} />
+                <TouchableOpacity style={styles.saveButton} onPress={save}>
+                  <Text style={styles.saveButtonText}>Save</Text>
+                </TouchableOpacity>
               </>
             ) : null}
           </>
@@ -314,7 +437,9 @@ export default function TakePhotoSafe() {
     return (
       <View style={styles.container}>
         <Text style={styles.title}>Camera permissions not granted</Text>
-        <Button title="Back" onPress={() => router.back()} />
+        <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
+          <Text style={styles.cancelButtonText}>Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -326,6 +451,14 @@ export default function TakePhotoSafe() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
+          <Text style={styles.closeButtonText}>✕</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>BeReal.</Text>
+        <View style={styles.headerRight} />
+      </View>
+
       <View style={styles.cameraContainer}>
         <Camera
           style={styles.camera}
@@ -334,27 +467,341 @@ export default function TakePhotoSafe() {
           type={cameraType}
           onCameraReady={() => setCameraReady(true)}
         />
-        {!cameraReady && <ActivityIndicator style={{ position: 'absolute', top: 12, right: 12 }} />}
+        {!cameraReady && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.loadingText}>Preparing camera...</Text>
+          </View>
+        )}
+        
+        {/* Camera type indicator */}
+        <View style={styles.cameraIndicator}>
+          <Text style={styles.cameraIndicatorText}>
+            {cameraType === 'front' ? '🤳' : '📸'}
+          </Text>
+        </View>
       </View>
+
       <View style={styles.controls}>
-        <Button title={loading ? 'Saving...' : 'Capture'} onPress={takePicture} disabled={loading} />
-        <Button title="Switch Camera" onPress={switchCamera} />
-        <Button title="Save BeReal" onPress={saveBoth} disabled={loading || !backPhoto || !frontPhoto} />
-        <Button title="Cancel" onPress={() => router.back()} />
-      </View>
-      <View style={{ padding: 12 }}>
-        <Text style={{ color: '#fff' }}>Back photo: {backPhoto ? 'Captured' : '—'}</Text>
-        <Text style={{ color: '#fff' }}>Front photo: {frontPhoto ? 'Captured' : '—'}</Text>
+        <View style={styles.photoStatus}>
+          <View style={[styles.statusDot, { backgroundColor: backPhoto ? '#4CAF50' : '#666' }]} />
+          <Text style={styles.statusText}>Back camera</Text>
+          <View style={[styles.statusDot, { backgroundColor: frontPhoto ? '#4CAF50' : '#666' }]} />
+          <Text style={styles.statusText}>Front camera</Text>
+        </View>
+
+        <View style={styles.buttonRow}>
+          <TouchableOpacity 
+            style={styles.switchButton} 
+            onPress={switchCamera}
+            disabled={loading}
+          >
+            <Text style={styles.switchButtonText}>🔄</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.captureButton, loading && styles.captureButtonDisabled]} 
+            onPress={captureBoth}
+            disabled={loading}
+          >
+            <View style={styles.captureButtonInner}>
+              <Text style={styles.captureButtonText}>
+                {loading ? '⏳' : '📸'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.singleCaptureButton, loading && styles.captureButtonDisabled]} 
+            onPress={takePicture}
+            disabled={loading}
+          >
+            <Text style={styles.singleCaptureText}>Single</Text>
+          </TouchableOpacity>
+        </View>
+
+        {(backPhoto && frontPhoto) && (
+          <TouchableOpacity 
+            style={styles.saveButton}
+            onPress={saveBoth}
+            disabled={loading}
+          >
+            <Text style={styles.saveButtonText}>
+              {loading ? 'Posting...' : '✨ Post BeReal'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
-  title: { fontSize: 22, marginBottom: 12 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#000',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    zIndex: 10,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: '300',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  headerRight: {
+    width: 32,
+  },
+  title: { fontSize: 22, marginBottom: 12, color: '#fff' },
   note: { color: 'gray' },
-  cameraContainer: { flex: 1, alignSelf: 'stretch', width: '100%', backgroundColor: '#000' },
+  cameraContainer: { 
+    flex: 1, 
+    position: 'relative',
+    marginHorizontal: 0,
+  },
   camera: { flex: 1 },
-  controls: { width: '100%', padding: 12, flexDirection: 'row', justifyContent: 'space-around' },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 12,
+    fontSize: 16,
+  },
+  cameraIndicator: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraIndicatorText: {
+    fontSize: 20,
+  },
+  controls: { 
+    paddingHorizontal: 20,
+    paddingVertical: 30,
+    backgroundColor: '#000',
+  },
+  photoStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    gap: 8,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    color: '#ccc',
+    fontSize: 12,
+    marginRight: 12,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  switchButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#333',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  switchButtonText: {
+    fontSize: 24,
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 4,
+    borderColor: '#000',
+  },
+  captureButtonDisabled: {
+    opacity: 0.5,
+  },
+  captureButtonInner: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  captureButtonText: {
+    fontSize: 32,
+  },
+  singleCaptureButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#333',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  singleCaptureText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  actionButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginVertical: 8,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  fallbackButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginVertical: 8,
+    alignItems: 'center',
+  },
+  fallbackButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    backgroundColor: '#333',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginVertical: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  expoGoContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  subtitle: {
+    fontSize: 18,
+    color: '#ccc',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  description: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 40,
+    lineHeight: 20,
+    maxWidth: 300,
+  },
+  buttonContainer: {
+    width: '100%',
+    gap: 16,
+    marginBottom: 30,
+  },
+  primaryActionButton: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  primaryActionButtonText: {
+    color: '#000',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  secondaryActionButton: {
+    backgroundColor: '#333',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#555',
+  },
+  secondaryActionButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  simulateButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  simulateButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });

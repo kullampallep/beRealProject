@@ -1,11 +1,19 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
 
 export default function CameraScreen() {
+	const router = useRouter();
+
+	useEffect(() => {
+		// Redirect to the take-photo screen
+		router.replace('/take-photo');
+	}, [router]);
+
 	return (
 		<View style={styles.container}>
-			<Text style={styles.title}>Camera</Text>
-			<Text style={styles.subtitle}>This is a placeholder for the Camera screen.</Text>
+			<ActivityIndicator size="large" color="#fff" />
+			<Text style={styles.title}>Opening Camera...</Text>
 		</View>
 	);
 }
@@ -15,14 +23,13 @@ const styles = StyleSheet.create({
 		flex: 1,
 		alignItems: 'center',
 		justifyContent: 'center',
+		backgroundColor: '#000',
 		padding: 20,
 	},
 	title: {
-		fontSize: 24,
-		marginBottom: 8,
-	},
-	subtitle: {
-		fontSize: 16,
-		color: 'gray',
+		fontSize: 18,
+		color: '#fff',
+		marginTop: 16,
+		fontWeight: '600',
 	},
 });
