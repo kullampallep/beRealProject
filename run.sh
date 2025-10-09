@@ -1,10 +1,6 @@
-#!/bin/bash
-
-# Exit on error
+#!/usr/bin/env bash
 set -e
-
-echo "🔧 Installing dependencies..."
-npm install
-
-echo "🚀 Starting Expo app..."
+echo "Installing dependencies..."
+npm install --legacy-peer-deps
+echo "Starting Expo..."
 npx expo start

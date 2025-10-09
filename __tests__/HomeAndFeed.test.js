@@ -2,11 +2,9 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react';
 import HomeScreen from '../app/index';
 import FeedScreen from '../app/(tabs)/feed';
-import { AuthProvider, AuthContext } from '../context/AuthContext';
-import { FriendsProvider, FriendsContext } from '../context/FriendsContext';
+import { AuthContext } from '../context/AuthContext';
+import { FriendsContext } from '../context/FriendsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const wrapper = ({ children }) => <AuthProvider>{children}</AuthProvider>;
 
 describe('Home & Feed screens', () => {
   it('renders welcome when not logged in', async () => {
